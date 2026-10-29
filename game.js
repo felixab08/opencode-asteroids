@@ -322,6 +322,7 @@ class Ship {
     this.invincible    = 3;
     this.shootCooldown = 0;
     this.speedBoost    = 0;
+    this.tripleShot    = 0;
     this.dead          = false;
   }
 
@@ -335,6 +336,7 @@ class Ship {
     if (this.invincible    > 0) this.invincible    -= dt;
     if (this.shootCooldown > 0) this.shootCooldown -= dt;
     if (this.speedBoost    > 0) this.speedBoost    -= dt;
+    if (this.tripleShot    > 0) this.tripleShot    -= dt;
 
     // Boost de velocidad: empuje duplicado (la rotación no cambia)
     const THRUST_ACTIVE = this.speedBoost > 0 ? THRUST * 2 : THRUST;
@@ -360,6 +362,16 @@ class Ship {
     const NOSE = 21;
     const ox = this.x + Math.cos(this.angle) * NOSE;
     const oy = this.y + Math.sin(this.angle) * NOSE;
+
+    // Triple shot: 3 balas en abanico (±10°) durante su duración
+    if (this.tripleShot > 0) {
+      const SPREAD = 0.17;
+      return [
+        new Bullet(ox, oy, this.angle - SPREAD),
+        new Bullet(ox, oy, this.angle),
+        new Bullet(ox, oy, this.angle + SPREAD),
+      ];
+    }
     return [new Bullet(ox, oy, this.angle)];
   }
 
@@ -434,14 +446,19 @@ class Particle {
   }
 }
 
-// ── PowerUp (Velocidad) ───────────────────────────────────────────────────────
+// ── PowerUp (Velocidad / Triple shot) ─────────────────────────────────────────
 class PowerUp {
   static DURATION = 5;    // segundos de boost al recogerlo
   static TTL       = 10;  // segundos flotando en el mapa
+  static TYPES = {
+    velocidad: { letra: 'V', color: '#ffd400' },
+    triple:    { letra: 'T', color: '#00e5ff' },
+  };
 
-  constructor(x, y) {
+  constructor(x, y, type = 'velocidad') {
     this.x = x;
     this.y = y;
+    this.type = type;
     this.radius = 10;
     this.ttl = PowerUp.TTL;
     this.dead = false;
@@ -466,23 +483,25 @@ class PowerUp {
 
     const pulse = 1 + 0.08 * Math.sin(performance.now() / 120);
 
+    const { letra, color } = PowerUp.TYPES[this.type];
+
     ctx.save();
     ctx.translate(this.x, this.y);
     ctx.scale(pulse, pulse);
 
     // Círculo exterior
-    ctx.strokeStyle = '#ffd400';
+    ctx.strokeStyle = color;
     ctx.lineWidth   = 1.5;
     ctx.beginPath();
     ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Letra "V" centrada
-    ctx.fillStyle   = '#ffd400';
+    // Letra identificativa centrada
+    ctx.fillStyle   = color;
     ctx.font        = 'bold 11px monospace';
     ctx.textAlign   = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('V', 0, 1);
+    ctx.fillText(letra, 0, 1);
 
     ctx.restore();
   }
@@ -673,9 +692,9 @@ function update(dt) {
         }
         newAsteroids.push(...a.split());
 
-        // Posible suelta de power-up (máximo 2 en pantalla)
+        // Posible suelta de power-up (máximo 2 en pantalla, tipo 50/50)
         if (Math.random() < 0.15 && powerups.length < 2)
-          powerups.push(new PowerUp(a.x, a.y));
+          powerups.push(new PowerUp(a.x, a.y, Math.random() < 0.5 ? 'velocidad' : 'triple'));
       }
     }
   }
@@ -696,8 +715,13 @@ function update(dt) {
   for (const pu of powerups) {
     if (dist(ship, pu) < ship.radius + pu.radius) {
       pu.dead = true;
-      ship.speedBoost = PowerUp.DURATION;
       explode(pu.x, pu.y, 8);
+      if (pu.type === 'triple') {
+        ship.tripleShot = PowerUp.DURATION;
+        floatTexts.push(new FloatText(pu.x, pu.y, 'TRIPLE'));
+      } else {
+        ship.speedBoost = PowerUp.DURATION;
+      }
     }
   }
   powerups = powerups.filter(pu => !pu.dead);
@@ -725,12 +749,19 @@ function drawHUD() {
   for (let i = 0; i < lives; i++)
     drawLifeIcon(W - 16 - i * 22, 18);
 
-  // Indicador de boost de velocidad activo
+  // Indicadores de power-ups activos
+  ctx.font = 'bold 13px monospace';
+  let hudY = H - 14;
   if (ship.speedBoost > 0) {
     ctx.textAlign = 'center';
     ctx.fillStyle = '#ffd400';
-    ctx.font = 'bold 13px monospace';
-    ctx.fillText(`VELOCIDAD ${ship.speedBoost.toFixed(1)}`, W / 2, H - 14);
+    ctx.fillText(`VELOCIDAD ${ship.speedBoost.toFixed(1)}`, W / 2, hudY);
+    hudY -= 18;
+  }
+  if (ship.tripleShot > 0) {
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#00e5ff';
+    ctx.fillText(`TRIPLE ${ship.tripleShot.toFixed(1)}`, W / 2, hudY);
   }
 
 }
